@@ -20,8 +20,28 @@ stdenv.mkDerivation {
 
   installPhase = ''
     runHook preInstall
-    mkdir -p "$out/share/mpv-gui" "$out/bin"
+    mkdir -p "$out/share/mpv-gui" "$out/bin" "$out/share/applications"
     cp -r mpvgui "$out/share/mpv-gui/mpvgui"
+    # Launcher entry (Walker, rofi, GNOME, KDE, …). Icon=mpv reuses the icon
+    # shipped by the mpv we wrap; StartupWMClass matches the window mpv opens.
+    # printf keeps the file free of the build script's indentation.
+    printf '%s\n' \
+      '[Desktop Entry]' \
+      'Type=Application' \
+      'Version=1.5' \
+      'Name=mpv GUI' \
+      'GenericName=Media Player' \
+      'Comment=mpv with the mpvgui OSD interface (Lua/ASS overlays)' \
+      "Exec=$out/bin/mpv-gui %F" \
+      'TryExec=mpv-gui' \
+      'Icon=mpv' \
+      'Terminal=false' \
+      'Categories=AudioVideo;Player;Video;Audio;' \
+      'Keywords=mpv;gui;video;audio;anime;player;' \
+      'StartupNotify=false' \
+      'StartupWMClass=mpv' \
+      'MimeType=video/mp4;video/x-matroska;video/webm;video/x-msvideo;video/quicktime;video/mpeg;audio/mpeg;audio/flac;audio/ogg;audio/x-wav;' \
+      > "$out/share/applications/mpvgui.desktop"
     # Optional shader presets shipped with the repo; the script scans
     # <script dir>/../shaders for *.glsl / *.hook / *.vpy.
     if [ -d shaders ]; then
