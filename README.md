@@ -53,8 +53,9 @@ mpv --osc=no --input-cursor=yes --script=./mpvgui file.mkv
 
 ## Controls
 
-Bar, left to right: play/pause, −10 s, +10 s, seekbar, elapsed/duration, speed,
-FX, playlist, **menu**, volume, mute, fullscreen.
+Bar, left to right: menu, play/pause, −10 s, +10 s, elapsed/duration, seekbar, speed,
+FX, playlist, volume, mute, fullscreen (menu sits on the far left, away from the
+panel buttons).
 
 | Element | Action |
 |---|---|

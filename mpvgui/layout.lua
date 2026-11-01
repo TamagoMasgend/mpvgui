@@ -5,7 +5,7 @@
 -- module is trivially unit-testable.
 --
 -- Layout of the bottom bar, left to right:
---   [play] [-10] [+10] [ 0:12 / 1:00 ] [==== seekbar ====] [1x] [FX] [list] [menu] [volume] [vol] [fs]
+--   [menu] [play] [-10] [+10] [ 0:12 / 1:00 ] [==== seekbar ====] [1x] [FX] [list] [volume] [vol] [fs]
 -- The side panel (playlist, shaders or the menu) takes the right edge; the bar
 -- shrinks so no control is ever hidden behind it.
 
@@ -101,6 +101,7 @@ function layout.compute(w, h, panel_open, scale)
 		x = x + bw
 	end
 
+	add("menu")
 	add("play")
 	add("back")
 	add("forward")
@@ -124,7 +125,6 @@ function layout.compute(w, h, panel_open, scale)
 	radd("fullscreen", btn)
 	radd("mute", btn)
 	radd("volume", round(theme.vol_w * s))
-	radd("menu", btn)
 	radd("playlist", btn)
 	radd("fx", btn)
 	radd("speed", round(theme.speed_w * s))
