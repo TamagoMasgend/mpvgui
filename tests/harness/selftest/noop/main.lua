@@ -1,0 +1,3 @@
+-- noop/main.lua — an empty script: no bindings, no OSD.
+-- Used by `drag.sh --control` and `perf.sh --control` to measure what mpv does
+-- on its own (built-in mouse bindings, vo dragging) without any GUI in the way.
