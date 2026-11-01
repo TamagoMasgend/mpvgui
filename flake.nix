@@ -1,7 +1,7 @@
 {
-  description = "mpv GUI — Path A: stock mpv as the Wayland client, Lua/ASS OSD, JSON IPC";
+  description = "Zero-overhead mpv GUI: stock mpv as the client, Lua/ASS OSD, JSON IPC";
 
-  # Pinned to the exact nixpkgs revision /etc/nixos is locked to
+  # Pinned to one nixpkgs revision
   # (nixos-unstable 1c89083e451e891152365b799595cf7790a43325), so the dev
   # shell's mpv is the same closure the GUI will run under: mpv 0.41.0,
   # libplacebo 7.360.1, scripting via the embedded Lua 5.2.4 (nixpkgs does
