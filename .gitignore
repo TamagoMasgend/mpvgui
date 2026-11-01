@@ -3,3 +3,6 @@
 /result-*
 /target/
 *.log
+*.png
+*.jpg
+*.sock
