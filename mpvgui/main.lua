@@ -6,8 +6,8 @@
 --
 -- Layers (separate overlay objects, ordered back to front):
 --   static    bar background + tracks          redrawn on layout change only
+--   panel     playlist / shader / menu rows    redrawn on list/selection change
 --   hover     icons, labels, fills, title       redrawn on state/hover change
---   panel     playlist rows                     redrawn on list/selection change
 --   transient seek / volume tooltip             redrawn on tooltip change
 --
 -- Updates are event driven.  The single timer that exists is the 4 Hz
@@ -19,6 +19,7 @@ local utils = require("mp.utils")
 
 local interact = require("interact")
 local layout = require("layout")
+local menu = require("menu")
 local render = require("render")
 local shaders = require("shaders")
 
@@ -33,7 +34,7 @@ local opts = {
 
 options.read_options(opts, SCRIPT)
 
-local LAYERS = { "static", "hover", "panel", "transient" }
+local LAYERS = { "static", "panel", "hover", "transient" }
 local TICK_INTERVAL = 0.25 -- 4 Hz: allowed seekbar/time refresh while visible
 local SCRUB_INTERVAL = 0.033 -- throttle for live scrub seeks
 
@@ -45,7 +46,12 @@ local state = {
 	panel_mode = nil,
 	panel_open = false,
 	panel_scroll = 0,
+	menu_page = "root",
+	menu_stack = {},
+	menu_view = nil,
+	menu_depth = 0,
 	shader_rows = {},
+	shader_active = "Off",
 	toast = nil,
 	pause = false,
 	has_media = false,
@@ -62,7 +68,26 @@ local state = {
 	playlist_pos = -1,
 	playlist_labels = {},
 	buffered_end = nil,
+	track_list = {},
+	aid = "auto",
+	sid = "auto",
+	vid = "auto",
+	chapter_list = {},
+	chapter = -1,
+	loop_file = "no",
+	loop_playlist = "no",
+	aspect = "no",
+	sub_visibility = true,
+	sub_delay = 0,
+	audio_delay = 0,
+	video_zoom = 0,
+	video_rotate = "no",
+	deinterlace = "no",
+	ab_loop_a = "no",
+	ab_loop_b = "no",
+	shuffle = false,
 	hover = nil,
+	hover_row = nil,
 	mouse_x = -1,
 	mouse_y = -1,
 	scrub = nil,
@@ -88,6 +113,8 @@ local show, hide, activity, apply_dims
 local toggle_panel, toggle_gui, cycle_speed, play_index, relative_seek, scroll_panel
 local set_volume_fraction, seek_time, on_activate, on_hover, on_drag, on_commit
 local show_toast, refresh_shader_rows, apply_shader_row, prompt_import, on_shaders_changed
+local panel_count, refresh_menu_view, publish_menu
+local menu_set_page, menu_back, menu_dispatch, prompt_sub_add
 
 local tick_timer, hide_timer, toast_timer
 
@@ -201,6 +228,78 @@ publish_layout = function()
 	mp.set_property("user-data/" .. SCRIPT .. "/layout", utils.format_json(data))
 end
 
+-- Menu ----------------------------------------------------------------------
+
+-- Number of rows in the open panel, for scroll clamping.
+panel_count = function()
+	if state.panel_mode == "menu" then
+		return state.menu_view and #state.menu_view.rows or 0
+	elseif state.panel_mode == "shaders" then
+		return #state.shader_rows
+	elseif state.panel_mode == "playlist" then
+		return #state.playlist
+	end
+	return 0
+end
+
+publish_menu = function()
+	if state.panel_mode ~= "menu" or not state.menu_view then
+		mp.set_property(
+			"user-data/" .. SCRIPT .. "/menu",
+			utils.format_json({ page = "", depth = 0, rows = {} })
+		)
+		return
+	end
+	local labels = {}
+	for i, row in ipairs(state.menu_view.rows) do
+		labels[i] = row.label
+	end
+	mp.set_property(
+		"user-data/" .. SCRIPT .. "/menu",
+		utils.format_json({ page = state.menu_page, depth = state.menu_depth, rows = labels })
+	)
+end
+
+refresh_menu_view = function()
+	if state.panel_mode ~= "menu" then
+		state.menu_view = nil
+		state.menu_depth = 0
+		publish_menu()
+		return
+	end
+	state.menu_view = menu.view(state, state.menu_page)
+	state.menu_depth = #state.menu_stack
+	if lay then
+		state.panel_scroll = layout.clamp_scroll(lay, state.panel_scroll, panel_count())
+	end
+	if it then
+		it:set_scroll(state.panel_scroll)
+	end
+	publish_menu()
+end
+
+menu_set_page = function(page, push)
+	if push then
+		state.menu_stack[#state.menu_stack + 1] = state.menu_page
+	end
+	state.menu_page = page
+	state.panel_scroll = 0
+	refresh_menu_view()
+end
+
+-- Back one page; from the root (or from a flat panel) close the panel.
+menu_back = function()
+	local n = #state.menu_stack
+	if n > 0 then
+		state.menu_page = state.menu_stack[n]
+		state.menu_stack[n] = nil
+		state.panel_scroll = 0
+		refresh_menu_view()
+	else
+		toggle_panel(state.panel_mode)
+	end
+end
+
 compute_layout = function()
 	if state.w <= 0 or state.h <= 0 then
 		lay = nil
@@ -209,7 +308,7 @@ compute_layout = function()
 		end
 		return
 	end
-	lay = layout.compute(state.w, state.h, state.panel_open, opts.scale)
+	lay = layout.compute(state.w, state.h, state.panel_mode, opts.scale)
 	if it then
 		it:set_layout(lay, state.panel_scroll)
 	end
@@ -240,6 +339,9 @@ end
 draw_panel = function()
 	if not state.enabled or not state.visible or not lay then
 		return
+	end
+	if state.panel_mode == "menu" then
+		refresh_menu_view()
 	end
 	set_layer("panel", state.panel_mode and render.panel(lay, state) or "")
 	publish()
@@ -439,7 +541,7 @@ scroll_panel = function(delta)
 	if not lay then
 		return
 	end
-	local count = state.panel_mode == "shaders" and #state.shader_rows or #state.playlist
+	local count = panel_count()
 	state.panel_scroll = layout.clamp_scroll(lay, state.panel_scroll + delta, count)
 	if it then
 		it:set_scroll(state.panel_scroll)
@@ -448,8 +550,8 @@ scroll_panel = function(delta)
 	activity()
 end
 
--- Opens/closes the side panel. `mode` is "playlist" or "shaders"; calling it
--- with the currently open mode closes the panel.
+-- Opens/closes the side panel. `mode` is "playlist", "shaders" or "menu";
+-- calling it with the currently open mode closes the panel.
 toggle_panel = function(mode)
 	if not state.enabled then
 		return
@@ -460,11 +562,16 @@ toggle_panel = function(mode)
 	else
 		state.panel_mode = mode
 		state.panel_scroll = 0
+		if mode == "menu" then
+			state.menu_page = "root"
+			state.menu_stack = {}
+		end
 	end
 	state.panel_open = state.panel_mode ~= nil
 	if state.panel_mode == "shaders" then
 		refresh_shader_rows()
 	end
+	refresh_menu_view()
 	if state.panel_open and not state.visible then
 		show()
 	end
@@ -487,6 +594,91 @@ toggle_gui = function()
 	end
 end
 
+prompt_sub_add = function()
+	if not mp.input then
+		show_toast("sub-add: no input API")
+		return
+	end
+	local function use(path)
+		if path and path ~= "" then
+			mp.commandv("sub-add", path, "select")
+		end
+	end
+	local ok, result = pcall(mp.input.get, { prompt = "subtitle file or URL: " }, use)
+	if not ok then
+		show_toast("sub-add: input unavailable")
+	elseif type(result) == "string" then
+		use(result)
+	end
+end
+
+-- Executes the action table attached to a menu row.  Every action lands in
+-- a property set or an mpv command; nothing here runs on a timer.
+menu_dispatch = function(action)
+	if not action then
+		return
+	end
+	local kind = action.kind
+	if kind == "page" then
+		menu_set_page(action.page, true)
+	elseif kind == "panel" then
+		toggle_panel(action.mode)
+	elseif kind == "set" then
+		if action.value_type == "native" then
+			mp.set_property_native(action.prop, action.value)
+		else
+			mp.set_property(action.prop, action.value)
+		end
+	elseif kind == "set_number" then
+		mp.set_property_native(action.prop, tonumber(action.value))
+	elseif kind == "props" then
+		for _, p in ipairs(action.props) do
+			if action.numbers then
+				mp.set_property_native(p[1], tonumber(p[2]))
+			else
+				mp.set_property(p[1], p[2])
+			end
+		end
+	elseif kind == "add" then
+		mp.commandv("add", action.prop, tostring(action.value))
+	elseif kind == "cmd" then
+		mp.commandv(table.unpack(action.args))
+	elseif kind == "seek_abs" then
+		mp.commandv("seek", string.format("%.3f", tonumber(action.time) or 0), "absolute+exact")
+	elseif kind == "set_time" then
+		local t = tonumber(mp.get_property_number("time-pos")) or 0
+		mp.set_property_native(action.prop, t)
+		show_toast(action.prop .. " = " .. render.fmt_time(t))
+	elseif kind == "rotate" then
+		local cur = tonumber(mp.get_property_number("video-rotate")) or 0
+		mp.set_property_native("video-rotate", (cur + (tonumber(action.step) or 90)) % 360)
+	elseif kind == "cycle_values" then
+		local cur = tostring(mp.get_property(action.prop) or "")
+		local values = action.values or {}
+		local next_value = values[1]
+		for i, v in ipairs(values) do
+			if v == cur then
+				next_value = values[(i % #values) + 1]
+				break
+			end
+		end
+		if next_value then
+			mp.set_property(action.prop, next_value)
+		end
+	elseif kind == "input" then
+		if action.what == "sub-add" then
+			prompt_sub_add()
+		end
+	elseif kind == "back" then
+		menu_back()
+	elseif kind == "close" then
+		toggle_panel(state.panel_mode)
+	end
+	-- "page_hint" rows are labels only.
+	draw_panel()
+	activity()
+end
+
 on_activate = function(id, index)
 	if id == "play" then
 		mp.commandv("cycle", "pause")
@@ -500,14 +692,26 @@ on_activate = function(id, index)
 		cycle_speed()
 	elseif id == "playlist" then
 		toggle_panel("playlist")
+	elseif id == "menu" then
+		toggle_panel("menu")
 	elseif id == "fx" then
 		toggle_panel("shaders")
 	elseif id == "fullscreen" then
 		mp.commandv("cycle", "fullscreen")
+	elseif id == "header" then
+		if state.panel_mode then
+			menu_back()
+		end
 	elseif id == "row" then
-		if state.panel_mode == "shaders" then
+		if state.panel_mode == "menu" then
+			local rows = state.menu_view and state.menu_view.rows or {}
+			local row = rows[(tonumber(index) or -1) + 1]
+			if row and not row.disabled then
+				menu_dispatch(row.action)
+			end
+		elseif state.panel_mode == "shaders" then
 			apply_shader_row(index)
-		else
+		elseif state.panel_mode == "playlist" then
 			play_index(index)
 			draw_panel()
 		end
@@ -515,8 +719,9 @@ on_activate = function(id, index)
 	activity()
 end
 
-on_hover = function(id)
+on_hover = function(id, index)
 	state.hover = id
+	state.hover_row = (id == "row") and index or nil
 	update_tooltip()
 	draw_hover()
 	draw_transient()
@@ -782,6 +987,72 @@ mp.observe_property("media-title", "native", function(_, v)
 	draw_hover()
 end)
 
+-- Properties the menu rows display.  They are cached here and redraw the
+-- panel only while the menu is open, so they cost nothing during playback.
+local function menu_prop(name, apply)
+	mp.observe_property(name, "native", function(_, v)
+		apply(v)
+		if state.panel_mode == "menu" then
+			draw_panel()
+		end
+	end)
+end
+
+menu_prop("track-list", function(v)
+	state.track_list = type(v) == "table" and v or {}
+end)
+menu_prop("aid", function(v)
+	state.aid = v
+end)
+menu_prop("sid", function(v)
+	state.sid = v
+end)
+menu_prop("vid", function(v)
+	state.vid = v
+end)
+menu_prop("chapter-list", function(v)
+	state.chapter_list = type(v) == "table" and v or {}
+end)
+menu_prop("chapter", function(v)
+	state.chapter = tonumber(v) or -1
+end)
+menu_prop("loop-file", function(v)
+	state.loop_file = v
+end)
+menu_prop("loop-playlist", function(v)
+	state.loop_playlist = v
+end)
+menu_prop("video-aspect-override", function(v)
+	state.aspect = v
+end)
+menu_prop("sub-visibility", function(v)
+	state.sub_visibility = v ~= false
+end)
+menu_prop("sub-delay", function(v)
+	state.sub_delay = tonumber(v) or 0
+end)
+menu_prop("audio-delay", function(v)
+	state.audio_delay = tonumber(v) or 0
+end)
+menu_prop("video-zoom", function(v)
+	state.video_zoom = tonumber(v) or 0
+end)
+menu_prop("video-rotate", function(v)
+	state.video_rotate = v
+end)
+menu_prop("deinterlace", function(v)
+	state.deinterlace = v
+end)
+menu_prop("ab-loop-a", function(v)
+	state.ab_loop_a = v
+end)
+menu_prop("ab-loop-b", function(v)
+	state.ab_loop_b = v
+end)
+menu_prop("shuffle", function(v)
+	state.shuffle = v == true
+end)
+
 local function playlist_label(entry)
 	local title = entry and entry.title
 	if not title or title == "" then
@@ -806,8 +1077,8 @@ mp.observe_property("playlist", "native", function(_, v)
 	for i, entry in ipairs(v) do
 		state.playlist_labels[i] = playlist_label(entry)
 	end
-	if lay and state.panel_mode ~= "shaders" then
-		state.panel_scroll = layout.clamp_scroll(lay, state.panel_scroll, #v)
+	if lay then
+		state.panel_scroll = layout.clamp_scroll(lay, state.panel_scroll, panel_count())
 	end
 	it:set_scroll(state.panel_scroll)
 	draw_panel()
@@ -865,8 +1136,11 @@ mp.observe_property("mouse-pos", "native", function(_, v)
 	on_pointer_move()
 end)
 
--- Key bindings.  Only what the GUI itself needs is forced; every other key
--- stays bound to mpv's defaults.
+-- Key bindings.  Only keys the GUI needs are forced, and mpv's default action
+-- is replicated whenever the GUI has nothing to do with the press.  Keys mpv
+-- already binds stay with mpv: `Tab` is unbound upstream, `Shift+x` (X) is
+-- unbound, `Shift+m` (M) is unbound, `g` is a no-op, and `Esc` defaults to
+-- `set fullscreen no` (replicated below outside the panels).
 
 mp.add_forced_key_binding("MBTN_LEFT", "mpvgui-left", on_left, { complex = true })
 mp.add_forced_key_binding("MBTN_LEFT_DBL", "mpvgui-left-dbl", on_left_dbl, { complex = true })
@@ -879,12 +1153,18 @@ end)
 mp.add_forced_key_binding("Tab", "mpvgui-panel", function()
 	toggle_panel("playlist")
 end)
-mp.add_forced_key_binding("Shift+s", "mpvgui-shaders", function()
+mp.add_forced_key_binding("Shift+m", "mpvgui-menu", function()
+	toggle_panel("menu")
+end)
+mp.add_forced_key_binding("Shift+x", "mpvgui-shaders", function()
 	toggle_panel("shaders")
 end)
-mp.add_forced_key_binding("Esc", "mpvgui-close-panel", function()
+mp.add_forced_key_binding("Esc", "mpvgui-back", function()
 	if state.panel_mode then
-		toggle_panel(state.panel_mode)
+		menu_back()
+	else
+		-- mpv's default Esc binding.
+		mp.commandv("set", "fullscreen", "no")
 	end
 end)
 -- mpv's default MBTN_RIGHT is "cycle pause".  Keep it outside the GUI, but a
@@ -911,13 +1191,13 @@ refresh_shader_rows = function()
 		out[i] = { name = entry.name, kind = entry.kind, active = active }
 	end
 	state.shader_rows = rows
+	state.shader_active = shaders.active.name or "Off"
 	mp.set_property(
 		"user-data/" .. SCRIPT .. "/shaders",
 		utils.format_json({ active = shaders.active.name, count = #out, entries = out })
 	)
 	if lay then
-		local count = state.panel_mode == "shaders" and #rows or #state.playlist
-		state.panel_scroll = layout.clamp_scroll(lay, state.panel_scroll, count)
+		state.panel_scroll = layout.clamp_scroll(lay, state.panel_scroll, panel_count())
 	end
 	if it then
 		it:set_scroll(state.panel_scroll)
@@ -1058,6 +1338,29 @@ mp.register_script_message(SCRIPT .. "-import", function(path)
 	end
 end)
 
+-- mpvgui-page <page|off>  opens a menu page (root, chapters, audio, subs,
+-- video, speed, aspect, loop, tools) or closes whatever panel is open.
+mp.register_script_message(SCRIPT .. "-page", function(arg)
+	if not arg or arg == "" then
+		return
+	end
+	if arg == "off" then
+		if state.panel_mode then
+			toggle_panel(state.panel_mode)
+		end
+		return
+	end
+	if state.panel_mode ~= "menu" then
+		toggle_panel("menu")
+	else
+		state.menu_page = "root"
+	end
+	state.menu_stack = {}
+	menu_set_page(arg, false)
+	draw_all()
+	publish()
+end)
+
 -- Events --------------------------------------------------------------------
 
 mp.register_event("file-loaded", function()
@@ -1093,11 +1396,30 @@ for i, entry in ipairs(state.playlist) do
 end
 state.playlist_pos = tonumber(mp.get_property_native("playlist-pos")) or -1
 state.has_media = mp.get_property_native("idle-active") ~= true
+state.track_list = mp.get_property_native("track-list") or {}
+state.aid = mp.get_property_native("aid")
+state.sid = mp.get_property_native("sid")
+state.vid = mp.get_property_native("vid")
+state.chapter_list = mp.get_property_native("chapter-list") or {}
+state.chapter = tonumber(mp.get_property_native("chapter") or -1)
+state.loop_file = mp.get_property_native("loop-file")
+state.loop_playlist = mp.get_property_native("loop-playlist")
+state.aspect = mp.get_property_native("video-aspect-override")
+state.sub_visibility = mp.get_property_native("sub-visibility") ~= false
+state.sub_delay = tonumber(mp.get_property_native("sub-delay") or 0)
+state.audio_delay = tonumber(mp.get_property_native("audio-delay") or 0)
+state.video_zoom = tonumber(mp.get_property_native("video-zoom") or 0)
+state.video_rotate = mp.get_property_native("video-rotate")
+state.deinterlace = mp.get_property_native("deinterlace")
+state.ab_loop_a = mp.get_property_native("ab-loop-a")
+state.ab_loop_b = mp.get_property_native("ab-loop-b")
+state.shuffle = mp.get_property_native("shuffle") == true
 
 mp.set_property_native("user-data/" .. SCRIPT .. "/enabled", 1)
 refresh_shader_rows()
 shaders.load_state()
 refresh_shader_rows()
+publish_menu()
 apply_dims(mp.get_property_native("osd-dimensions"))
 show()
 publish()

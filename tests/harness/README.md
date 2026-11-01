@@ -15,7 +15,7 @@ same harness works for any `--script=<dir>` that follows the tiny contract below
 ├── run.sh               orchestrator: preflight -> start mpv -> run a scenario
 ├── media/               fixtures (generated, gitignored)
 ├── run/                 sockets, mpv logs, artifacts (gitignored)
-├── scenarios/           smoke render click drag wheel playlist shaders robustness perf
+├── scenarios/           smoke render click drag wheel playlist menu shaders robustness perf
 └── selftest/            refgui (a small uosc-flavoured GUI), noop, counters.sh
 ```
 
@@ -101,6 +101,7 @@ nix develop --command bash -c 'tests/harness/run.sh --script tests/harness/selft
 | `drag.sh` | press on the bar seeks to the press position, the release settles at the release position, and (reported) whether intermediate moves moved `time-pos` |
 | `wheel.sh` | wheel over the volume box raises `volume` and a wheel-down lowers it; prints which delivery mechanism worked and whether the **GUI** (not mpv's builtin binding) reacted |
 | `playlist.sh` | `playlist-count ≥ 2`, `Tab` changes ≥ `--min-changed` pixels inside the panel region, clicking row 2 sets `playlist-pos` to 1 |
+| `menu.sh` | on `media/tracks.mkv` (2 audio, 2 subs, 3 chapters): the layout publishes a `menu` button, clicking it opens the root page (`panel_open=true`, `user-data/mpvgui/menu` page/rows published); clicking *Audio track → Japanese 880* sets `aid`, the panel header goes back to root (`depth=0`), *Subtitles → Japanese subs* sets `sid`, the chapters page lists the fixture chapters and clicking *Middle* seeks to 2 s (`chapter=1`), the speed page sets `speed=1.5`, the loop page sets and clears `loop-file`; `Esc` closes the panel and the log stays clean |
 | `shaders.sh` | eight parts against an isolated `--config-dir`: the GUI publishes a shader list (`user-data/mpvgui/shaders`, entries = `Off` + presets + discovered files, `count` == `#entries`); a preset apply sets `glsl-shaders` **and** repaints the frame (centre pixel turns red/blue), both via `script-message` and by **clicking the row** in the panel; switching and `off` follow; `mpvgui-import` copies the file into the config dir and appends it to the list; a **broken shader** logs a compile error, is surfaced in the OSD **and** the previous chain is restored; the active preset survives a restart; `updates*` never move while hidden or while the panel is open and untouched |
 | `robustness.sh` | four sub-cases (audio-only, idle start + `loadfile`, resize, seek past EOF) each keep mpv alive, keep playback sane and leave the log clean |
 | `perf.sh` | `frame-drop-count ≤ --max-drops` (default 0) and, while the bar is hidden and untouched, the `updates*` counters do not move; prints per-second drops / `estimated-vf-fps` / `%CPU` / counters |

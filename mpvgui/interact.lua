@@ -19,6 +19,9 @@ function interact.hit(L, x, y, scroll)
 		return nil
 	end
 	if L.panel and x >= L.panel.x0 then
+		if y < L.panel.header_h then
+			return "header"
+		end
 		local slot = layout.row_at(L, y)
 		if slot then
 			return "row", (tonumber(scroll) or 0) + slot
@@ -43,12 +46,14 @@ end
 -- Ids that trigger an action on press.
 local ACTIVATABLE = {
 	row = true,
+	header = true,
 	play = true,
 	back = true,
 	forward = true,
 	mute = true,
 	speed = true,
 	playlist = true,
+	menu = true,
 	fx = true,
 	fullscreen = true,
 }
@@ -79,11 +84,12 @@ function interact:set_scroll(scroll)
 	self.scroll = tonumber(scroll) or 0
 end
 
-function interact:set_hover(id)
-	if self.hover ~= id then
+function interact:set_hover(id, index)
+	if self.hover ~= id or self.hover_index ~= index then
 		self.hover = id
+		self.hover_index = index
 		if self.cb.on_hover then
-			self.cb.on_hover(id)
+			self.cb.on_hover(id, index)
 		end
 	end
 end
@@ -104,8 +110,8 @@ function interact:move(x, y)
 		end
 		return
 	end
-	local id = interact.hit(self.lay, x, y, self.scroll)
-	self:set_hover(id)
+	local id, index = interact.hit(self.lay, x, y, self.scroll)
+	self:set_hover(id, index)
 end
 
 function interact:down(x, y)
@@ -123,6 +129,7 @@ function interact:down(x, y)
 		if self.cb.on_activate then
 			self.cb.on_activate(id, index)
 		end
+		self:set_hover(id, index)
 	end
 end
 
@@ -139,7 +146,8 @@ function interact:up(x, y)
 	if self.cb.on_commit then
 		self.cb.on_commit(kind, f)
 	end
-	self:set_hover(interact.hit(self.lay, x, y, self.scroll))
+	local id, index = interact.hit(self.lay, x, y, self.scroll)
+	self:set_hover(id, index)
 end
 
 -- A synthetic single click (mpv `mouse x y 0`, or a click that never reports
@@ -148,13 +156,13 @@ function interact:press(x, y)
 	if not self.lay then
 		return
 	end
-	local id = interact.hit(self.lay, x, y, self.scroll)
+	local id, index = interact.hit(self.lay, x, y, self.scroll)
 	if id == "seekbar" or id == "volume" then
 		self:down(x, y)
 		self:up(x, y)
 	else
 		self:down(x, y)
-		self:set_hover(id)
+		self:set_hover(id, index)
 	end
 end
 

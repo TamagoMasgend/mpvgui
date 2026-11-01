@@ -218,6 +218,17 @@ local function icon_list(cx, cy, size)
 	return table.concat(paths, " ")
 end
 
+local function icon_menu(cx, cy, size)
+	local t = math.max(1, size * 0.11)
+	local half = size * 0.42
+	local paths = {}
+	for i = -1, 1 do
+		local y = cy + i * size * 0.28
+		paths[#paths + 1] = rect_path(cx - half, y - t / 2, cx + half, y + t / 2)
+	end
+	return table.concat(paths, " ")
+end
+
 local function icon_fullscreen(cx, cy, size, active)
 	local ext = size * (active and 0.3 or 0.48)
 	local t = math.max(1, size * 0.1)
@@ -285,6 +296,24 @@ function render.hover(L, state)
 		local x0, y0 = hovered.x0 + 2, hovered.y0 + 4
 		local x1, y1 = hovered.x1 - 2, hovered.y1 - 4
 		add_round(ev, theme.color.hover, theme.alpha.hover, x0, y0, x1, y1, L.btn_radius)
+	end
+
+	-- Hover highlight behind a panel row (or the header, which goes back).
+	local p = L.panel
+	if p and state.panel_mode then
+		local band = nil
+		if state.hover == "header" then
+			band = { p.x0, 0, p.x1, p.header_h }
+		elseif state.hover == "row" and state.hover_row then
+			local slot = state.hover_row - (tonumber(state.panel_scroll) or 0)
+			if slot >= 0 and slot < p.visible then
+				local y0 = p.rows_y0 + slot * p.row_h
+				band = { p.x0, y0 + 1, p.x1, y0 + p.row_h - 1 }
+			end
+		end
+		if band then
+			add_rect(ev, theme.color.hover, theme.alpha.hover, band[1], band[2], band[3], band[4])
+		end
 	end
 
 	-- Seekbar: buffered band, played fill, knob.
@@ -358,6 +387,11 @@ function render.hover(L, state)
 			if state.panel_mode == "shaders" then
 				color = theme.color.accent
 			end
+		elseif b.id == "menu" then
+			path = icon_menu(b.cx, b.cy, L.icon)
+			if state.panel_mode == "menu" then
+				color = theme.color.accent
+			end
 		elseif b.id == "fullscreen" then
 			path = icon_fullscreen(b.cx, b.cy, L.icon, state.fullscreen)
 		end
@@ -392,17 +426,112 @@ function render.hover(L, state)
 	return table.concat(ev, "\n")
 end
 
--- Side panel: playlist rows or shader rows.  Drawn only when the list,
--- selection, scroll offset, mode or geometry changes.
+-- Shared panel chrome: right-hand column background and its separator.
+local function panel_base(L, p, ev)
+	add_rect(ev, theme.color.panel, theme.alpha.panel, p.x0, 0, p.x1, p.y1)
+	local sep_w = math.max(1, math.floor(L.s * 2))
+	add_rect(ev, theme.color.track, nil, p.x0, 0, p.x0 + sep_w, p.y1)
+	return sep_w
+end
+
+-- Menu page: one row per command, label on the left, current value on the
+-- right, the active/toggled row carrying the accent bar.  Rows come from
+-- menu.lua via state.menu_view (rebuilt by main.lua on state change only).
+function render.menu_page(L, state)
+	local p = L.panel
+	if not p or p.visible <= 0 then
+		return ""
+	end
+	local view = state.menu_view
+	if not view then
+		return ""
+	end
+	local ev = {}
+	local sep_w = panel_base(L, p, ev)
+
+	local depth = tonumber(state.menu_depth) or 0
+	local header = render.sanitize(view.title or "")
+	if depth > 0 then
+		header = "< " .. header
+	end
+	local hclip = { p.x0 + sep_w, 0, p.x1 - p.pad, p.header_h }
+	ev[#ev + 1] =
+		text_event(p.x0 + p.pad, p.pad, 7, header, L.font.small, theme.color.text_dim, nil, hclip)
+	local line_y = p.header_h - math.max(1, math.floor(L.s))
+	add_rect(ev, theme.color.track, nil, p.x0 + sep_w, line_y, p.x1, line_y + 1)
+
+	local rows = view.rows or {}
+	local first = math.max(0, tonumber(state.panel_scroll) or 0)
+	local detail_size = L.font.small
+	local bar_w = math.max(2, math.floor(L.s * 4))
+	for slot = 1, p.visible do
+		local idx = first + slot - 1
+		local row = rows[idx + 1]
+		if not row then
+			break
+		end
+		local y0 = p.rows_y0 + (slot - 1) * p.row_h
+		local y1 = y0 + p.row_h
+		local cy = (y0 + y1) / 2
+		if row.active then
+			add_rect(ev, theme.color.panel_row, nil, p.x0 + sep_w, y0 + 1, p.x1, y1 - 1)
+			add_rect(
+				ev,
+				theme.color.accent,
+				nil,
+				p.x0 + sep_w,
+				y0 + 1,
+				p.x0 + sep_w + bar_w,
+				y1 - 1
+			)
+		end
+		local label_color = theme.color.text
+		if row.disabled then
+			label_color = theme.color.text_dim
+		elseif row.active then
+			label_color = theme.color.accent
+		end
+		local detail = row.detail and render.sanitize(row.detail) or ""
+		local detail_w = 0
+		if detail ~= "" then
+			detail_w = math.floor(#detail * detail_size * 0.56)
+			local dclip = { p.x0 + sep_w + p.pad, y0, p.x1 - p.pad, y1 }
+			ev[#ev + 1] = text_event(
+				p.x1 - p.pad,
+				cy,
+				6,
+				detail,
+				detail_size,
+				theme.color.text_dim,
+				nil,
+				dclip
+			)
+		end
+		local label = render.sanitize(row.label or "")
+		local lx = p.x0 + sep_w + p.pad
+		local lclip = {
+			lx,
+			y0,
+			math.max(lx + 4, p.x1 - p.pad - detail_w - math.floor(L.s * 8)),
+			y1,
+		}
+		ev[#ev + 1] = text_event(lx, cy, 4, label, L.font.row, label_color, nil, lclip)
+	end
+	return table.concat(ev, "\n")
+end
+
+-- Side panel: playlist rows, shader rows or a menu page.  Drawn only when the
+-- list, selection, scroll offset, mode or geometry changes.
 function render.panel(L, state)
 	local p = L.panel
 	if not p or p.visible <= 0 then
 		return ""
 	end
+	if state.panel_mode == "menu" then
+		return render.menu_page(L, state)
+	end
 	local ev = {}
-	add_rect(ev, theme.color.panel, theme.alpha.panel, p.x0, 0, p.x1, p.y1)
-	local sep_w = math.max(1, math.floor(L.s * 2))
-	add_rect(ev, theme.color.track, nil, p.x0, 0, p.x0 + sep_w, p.y1)
+	panel_base(L, p, ev)
 
 	local shader_mode = state.panel_mode == "shaders"
 	local labels, active_index, count, header

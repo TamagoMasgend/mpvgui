@@ -6,7 +6,7 @@
 #   * `script-message-to mpvgui mpvgui-shader <preset>`  applies a preset
 #   * `script-message-to mpvgui mpvgui-import <file.hook>` imports a shader
 #   * config layout: <config-dir>/mpv/mpvgui/shaders.conf + .../shaders/*.hook
-#   * the panel opens from a bar FX button and from `keypress Shift+S`
+#   * the panel opens from a bar FX button and from `keypress Shift+x`
 #
 # Parts (in order): 0 contract probe, 1 baseline+panel, 2 preset apply,
 # 3 mode switch + off, 4 import, 5 broken shader (log + toast + restore),
@@ -52,7 +52,7 @@ OPTIONS
 
 PARTS
   1 baseline   glsl-shaders empty; user-data/mpvgui/shaders parses with
-               {active,count,entries}; panel opens (FX button + Shift+S),
+               {active,count,entries}; panel opens (FX button + Shift+x),
                lists Off / presets / discovered files
  1b row click  clicking row 1 applies that preset (chain + pixel), row 0
                ("Off") clears it - the panel interaction, not script-message
@@ -304,13 +304,13 @@ else
     fail "baseline frame is not white: ($BASE_RGB) — is the media white.mp4?"
 fi
 
-# panel: FX button from the published layout, then Shift+S
+# panel: FX button from the published layout, then Shift+x
 FX_BUTTON="$(fx_button_id || true)"
 if [ -n "$FX_BUTTON" ]; then
     read -r FX_X FX_Y <<<"$(button_center "$FX_BUTTON")"
     info "FX button='$FX_BUTTON' rect=[$(layout_btn_csv "$FX_BUTTON")] centre=($FX_X,$FX_Y)"
 else
-    skip "no FX/shader button found in the published layout buttons ($(layout_btn_ids)) — contract gap; the panel is only tested via Shift+S"
+    skip "no FX/shader button found in the published layout buttons ($(layout_btn_ids)) — contract gap; the panel is only tested via Shift+x"
     diag "layout.buttons ids: $(layout_btn_ids)"
 fi
 
@@ -344,26 +344,26 @@ else
     POST_PANEL=""
 fi
 
-# Shift+S must open it too
-ipc_key "$SOCK" "$([ "$PANEL_OPENED" = 1 ] && echo "Shift+S" || echo "Shift+S")" || diag "keypress Shift+S failed"
+# Shift+x must open it too
+ipc_key "$SOCK" "$([ "$PANEL_OPENED" = 1 ] && echo "Shift+x" || echo "Shift+x")" || diag "keypress Shift+x failed"
 sleep 0.5
 harness_layout_refresh "$SOCK" || true
 KEY_OPEN="$(layout_q '.panel_open')"
 KEY_SHOT="$(shot panel-open-key)" || die "panel screenshot failed"
 if [ "$PANEL_OPENED" = 1 ]; then
-    # it was open from the click; Shift+S should close it
+    # it was open from the click; Shift+x should close it
     if [ "$KEY_OPEN" = "false" ] || [ "$(img_diff_stats "$POST_PANEL" "$KEY_SHOT" "" 8 | sed -n 's/.*nonwhite=\([0-9]*\).*/\1/p')" -gt 200 ]; then
-        pass "keypress Shift+S toggled the panel (panel_open=$KEY_OPEN)"
+        pass "keypress Shift+x toggled the panel (panel_open=$KEY_OPEN)"
     else
-        fail "keypress Shift+S did not toggle the panel (panel_open=$KEY_OPEN, no pixel change)"
+        fail "keypress Shift+x did not toggle the panel (panel_open=$KEY_OPEN, no pixel change)"
     fi
     PANEL_STATE_OPEN=0
 else
     if [ "$KEY_OPEN" = "true" ] || [ "$(img_diff_stats "$PRE_PANEL" "$KEY_SHOT" "$([ "$(layout_q '.panel // empty')" != "" ] && layout_panel_crop || echo "")" 8 | sed -n 's/.*nonwhite=\([0-9]*\).*/\1/p')" -gt 200 ]; then
-        pass "keypress Shift+S opened the panel (panel_open=$KEY_OPEN)"
+        pass "keypress Shift+x opened the panel (panel_open=$KEY_OPEN)"
         PANEL_STATE_OPEN=1
     else
-        fail "keypress Shift+S did not open the panel (panel_open=$KEY_OPEN)"
+        fail "keypress Shift+x did not open the panel (panel_open=$KEY_OPEN)"
         PANEL_STATE_OPEN=0
     fi
 fi
@@ -379,25 +379,25 @@ for needle in off tint-red tint-blue discovered-tint; do
 done
 
 # close the panel for the pixel parts
-if [ "$PANEL_STATE_OPEN" = 1 ]; then ipc_key "$SOCK" "Shift+S"; sleep 0.4; fi
+if [ "$PANEL_STATE_OPEN" = 1 ]; then ipc_key "$SOCK" "Shift+x"; sleep 0.4; fi
 harness_layout_refresh "$SOCK" || true
 
 # ------------------------------------------------ 1b. the panel's own click path
 echo
 echo "=== part 1b: clicking a row in the panel applies that preset"
-open_panel() { # open via the FX button when a rect is published, else via Shift+S
+open_panel() { # open via the FX button when a rect is published, else via Shift+x
     harness_reveal_osd "$SOCK" >/dev/null 2>&1 || true
     if [ -n "${FX_BUTTON:-}" ] && read -r ox oy <<<"$(button_center "$FX_BUTTON")"; then
         ipc_click "$SOCK" "$ox" "$oy" 0
     else
-        ipc_key "$SOCK" "Shift+S"
+        ipc_key "$SOCK" "Shift+x"
     fi
     sleep 0.5
     harness_layout_refresh "$SOCK" || true
     panel_rect_ok
 }
 close_panel() {
-    ipc_key "$SOCK" "Shift+S" >/dev/null 2>&1 || true
+    ipc_key "$SOCK" "Shift+x" >/dev/null 2>&1 || true
     sleep 0.3
     harness_layout_refresh "$SOCK" || true
 }
@@ -637,7 +637,7 @@ if [ "$(chain_len)" != 0 ]; then
     skip "cost part needs shaders off; chain is $(chain_json)"
 else
     # --- 7a: panel closed, hidden, 10 s
-    if [ "$(layout_q '.panel_open')" = "true" ]; then ipc_key "$SOCK" "Shift+S"; sleep 0.4; fi
+    if [ "$(layout_q '.panel_open')" = "true" ]; then ipc_key "$SOCK" "Shift+x"; sleep 0.4; fi
     ipc_set "$SOCK" pause false >/dev/null 2>&1 || true
     info "waiting ${HIDE_TIME}s for the OSD to hide (no interaction)"
     local_vis=""
@@ -683,10 +683,10 @@ else
     fi
 
     # --- 7b: panel open, untouched
-    ipc_key "$SOCK" "Shift+S"; sleep 0.6
+    ipc_key "$SOCK" "Shift+x"; sleep 0.6
     harness_layout_refresh "$SOCK" || true
     if [ "$(layout_q '.panel_open')" != "true" ]; then
-        skip "panel did not open via Shift+S (panel_open=$(layout_q '.panel_open')): panel-idle cost not measurable"
+        skip "panel did not open via Shift+x (panel_open=$(layout_q '.panel_open')): panel-idle cost not measurable"
     else
         PKEYS="$(ud_dump "$SOCK" mpvgui '^updates' | cut -d= -f1)"
         declare -A P0=()
@@ -717,7 +717,7 @@ else
                 fail "counters moved while the panel was open and untouched: $(printf '%s' "$p_moved" | tr -s ' ')"
             fi
         fi
-        ipc_key "$SOCK" "Shift+S"
+        ipc_key "$SOCK" "Shift+x"
     fi
 fi
 

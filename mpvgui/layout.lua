@@ -5,9 +5,9 @@
 -- module is trivially unit-testable.
 --
 -- Layout of the bottom bar, left to right:
---   [play] [-10] [+10] [ 0:12 / 1:00 ] [======= seekbar =======] [vol] [volume] [1x] [list] [fs]
--- The playlist panel (when open) takes the right edge; the bar shrinks so no
--- control is ever hidden behind it.
+--   [play] [-10] [+10] [ 0:12 / 1:00 ] [==== seekbar ====] [1x] [FX] [list] [menu] [volume] [vol] [fs]
+-- The side panel (playlist, shaders or the menu) takes the right edge; the bar
+-- shrinks so no control is ever hidden behind it.
 
 local theme = require("theme")
 
@@ -63,7 +63,8 @@ function layout.compute(w, h, panel_open, scale)
 		panel_w = clamp(panel_w, 0, math.max(0, w - margin * 2))
 	end
 	if panel_w > 0 then
-		local row_h = math.max(10, round(theme.row_h * s))
+		local row_ref = (mode == "menu") and theme.row_h_menu or theme.row_h
+		local row_h = math.max(10, round(row_ref * s))
 		local p = {
 			x0 = w - panel_w,
 			x1 = w,
@@ -123,6 +124,7 @@ function layout.compute(w, h, panel_open, scale)
 	radd("fullscreen", btn)
 	radd("mute", btn)
 	radd("volume", round(theme.vol_w * s))
+	radd("menu", btn)
 	radd("playlist", btn)
 	radd("fx", btn)
 	radd("speed", round(theme.speed_w * s))

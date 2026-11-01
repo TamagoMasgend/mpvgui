@@ -32,6 +32,8 @@ FIXTURES (all h264 / yuv420p / faststart unless noted)
   white.mp4          4s 1920x1080 solid white, 30fps    (pixel assertions vs white)
   audio.m4a          3s 440Hz sine, AAC                 (audio-only robustness)
   pl/ep01..ep05.mp4  5x 1s 320x180@30 distinct clips    (playlist tests)
+  tracks.mkv         6s 640x360, 2 audio + 2 subs + 3 chapters (menu pages)
+  shaders/*.hook     tint red/blue/green + deliberately broken (shader tests)
 
 REQUIRES
   ffmpeg / ffprobe (the repo dev shell provides ffmpeg 9.0.2).
@@ -238,11 +240,75 @@ gen_playlist() {
     done
 }
 
+# ------------------------------------------------------------------- tracks.mkv
+# 6 s 640x360 clip with two audio tracks, two subtitle tracks and three
+# chapters: the fixture for the menu pages (track switching, chapter seeks).
+probe_tracks_ok() {
+    local f="$1"
+    [ -s "$f" ] || return 1
+    local na ns nc
+    na=$(ffprobe -v error -select_streams a -show_entries stream=index -of csv=p=0 "$f" 2>/dev/null | grep -c .)
+    ns=$(ffprobe -v error -select_streams s -show_entries stream=index -of csv=p=0 "$f" 2>/dev/null | grep -c .)
+    nc=$(ffprobe -v error -show_entries chapter=start_time -of csv=p=0 "$f" 2>/dev/null | grep -c .)
+    [ "$na" = 2 ] && [ "$ns" = 2 ] && [ "$nc" = 3 ]
+}
+
+gen_tracks() {
+    local out="$MEDIA_DIR/tracks.mkv"
+    if [ "$FORCE" = 0 ] && probe_tracks_ok "$out"; then
+        echo "  ok      tracks.mkv (cached)"
+        return 0
+    fi
+    echo "  build   tracks.mkv  (6s 640x360, 2 audio, 2 subs, 3 chapters) ..."
+    local tmp
+    tmp=$(mktemp -d)
+    printf '1\n00:00:00,000 --> 00:00:02,000\nEnglish line one\n\n2\n00:00:02,000 --> 00:00:05,000\nEnglish line two\n' \
+        >"$tmp/eng.srt"
+    printf '1\n00:00:00,000 --> 00:00:02,000\n日本語 その一\n\n2\n00:00:02,000 --> 00:00:05,000\n日本語 その二\n' \
+        >"$tmp/jpn.srt"
+    cat >"$tmp/meta.txt" <<'META'
+;FFMETADATA1
+[CHAPTER]
+TIMEBASE=1/1000
+START=0
+END=2000
+title=Intro
+[CHAPTER]
+TIMEBASE=1/1000
+START=2000
+END=4000
+title=Middle
+[CHAPTER]
+TIMEBASE=1/1000
+START=4000
+END=6000
+title=End
+META
+    ffmpeg -y -loglevel error \
+        -f lavfi -i "testsrc2=size=640x360:rate=30:duration=6" \
+        -f lavfi -i "sine=frequency=440:duration=6" \
+        -f lavfi -i "sine=frequency=880:duration=6" \
+        -i "$tmp/eng.srt" -i "$tmp/jpn.srt" -i "$tmp/meta.txt" \
+        -map 0:v -map 1:a -map 2:a -map 3 -map 4 -map_metadata 5 -map_chapters 5 \
+        -c:v libx264 -preset veryfast -crf 26 -pix_fmt yuv420p \
+        -c:a aac -b:a 96k -c:s srt \
+        -metadata:s:a:0 language=eng -metadata:s:a:0 title="English 440" \
+        -metadata:s:a:1 language=jpn -metadata:s:a:1 title="Japanese 880" \
+        -metadata:s:s:0 language=eng -metadata:s:s:0 title="English subs" \
+        -metadata:s:s:1 language=jpn -metadata:s:s:1 title="Japanese subs" \
+        -metadata:s:v:0 title="Main video" \
+        "$out"
+    rm -rf "$tmp"
+    probe_tracks_ok "$out" || { echo "fixtures.sh: tracks.mkv is invalid after generation" >&2; return 1; }
+    echo "  ok      tracks.mkv ($(du -h "$out" | cut -f1))"
+}
+
 echo "fixtures.sh: media dir $MEDIA_DIR"
 gen_video1080p60
 gen_white
 gen_audio
 gen_playlist
+gen_tracks
 gen_shaders
 _check_shader_pixels
 echo "fixtures.sh: all fixtures ready"

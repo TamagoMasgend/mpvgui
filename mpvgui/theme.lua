@@ -56,6 +56,9 @@ theme.panel_max = 640
 theme.panel_pad = 16
 theme.header_h = 52
 theme.row_h = 96
+-- Menu pages are denser than list pages: the root menu has 13 rows and must
+-- fit without scrolling at reference height.
+theme.row_h_menu = 68
 theme.title_max_ratio = 0.6
 
 theme.font = {

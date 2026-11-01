@@ -21,7 +21,7 @@ export HARNESS_DIR
 SCEN_DIR="$HARNESS_DIR/scenarios"
 ARTROOT="$HARNESS_DIR/run/artifacts"
 
-SCENARIOS=(smoke render click drag wheel playlist shaders robustness perf)
+SCENARIOS=(smoke render click drag wheel playlist menu shaders robustness perf)
 
 desc_of() { local v="DESC_$1"; printf "%s" "${!v:-}"; }
 
@@ -31,6 +31,7 @@ DESC_click="synthetic click on a control -> expected property change"
 DESC_drag="seekbar drag: time-pos follows and settles at the release point"
 DESC_wheel="wheel over the volume area changes volume"
 DESC_playlist="Tab opens a panel; clicking row 2 changes playlist-pos"
+DESC_menu="menu pages: MENU button, audio/sub tracks, chapters, speed, loop by click"
 DESC_robustness="audio-only, idle start, resize, seek past EOF: no script errors"
 DESC_perf="10s of 1080p60: frame drops, vf-fps, CPU, GUI update counters"
 DESC_shaders="shader presets: apply/switch/off, import, compile failure, persistence, cost"
@@ -43,6 +44,7 @@ declare -A SCEN_MEDIA=(
     [drag]=video1080p60.mp4
     [wheel]=white.mp4
     [playlist]=pl
+    [menu]=tracks.mkv
     [robustness]=white.mp4
     [perf]=video1080p60.mp4
     [shaders]=white.mp4
