@@ -47,10 +47,22 @@ stdenv.mkDerivation {
     if [ -d shaders ]; then
       cp -r shaders "$out/share/mpv-gui/shaders"
     fi
-    makeWrapper ${lib.getExe mpv} "$out/bin/mpv-gui" \
+    makeWrapper ${lib.getExe mpv} "$out/bin/.mpv-gui-wrapped" \
       --add-flags "--osc=no" \
       --add-flags "--input-cursor=yes" \
       --add-flags "--script=$out/share/mpv-gui/mpvgui"
+    # Launched with no file (desktop entry, launcher, panel button) mpv would
+    # print its usage and exit, i.e. the shortcut appears to do nothing. Fall
+    # back to an idle window in that case only, so normal playback keeps mpv's
+    # default "exit after the last file" behaviour.
+    cat > "$out/bin/mpv-gui" <<EOF
+#!${stdenv.shell}
+if [ "\$#" -eq 0 ]; then
+  set -- --idle=yes --force-window=yes
+fi
+exec "$out/bin/.mpv-gui-wrapped" "\$@"
+EOF
+    chmod +x "$out/bin/mpv-gui"
     runHook postInstall
   '';
 
