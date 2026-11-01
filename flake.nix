@@ -10,12 +10,27 @@
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/1c89083e451e891152365b799595cf7790a43325";
 
   outputs =
-    { nixpkgs, ... }:
+    { self, nixpkgs, ... }:
     let
       systems = [ "x86_64-linux" ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
     in
     {
+      # mpv + the Lua GUI, exposed as a single wrapper that enables the OSD
+      # GUI flags (--osc=no --input-cursor=yes --script=...).  `nix run` uses
+      # the same derivation through apps.default below.
+      packages = forAllSystems (pkgs: {
+        default = pkgs.callPackage ./nix/package.nix { };
+      });
+
+      apps = forAllSystems (pkgs: {
+        default = {
+          type = "app";
+          program = nixpkgs.lib.getExe self.packages.${pkgs.stdenv.hostPlatform.system}.default;
+          meta.description = "mpv with the mpvgui Lua/ASS OSD GUI";
+        };
+      });
+
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
           name = "mpvGUI";
@@ -74,6 +89,33 @@
         };
       });
 
-      formatter = forAllSystems (pkgs: pkgs.nixfmt);
+      # `nix fmt` runs <formatter>/bin/nixfmt with no arguments (current Nix no
+      # longer passes the tree), and a bare nixfmt then reads stdin and fails.
+      # This wrapper formats this repo's Nix files when called without
+      # arguments and forwards explicit paths unchanged.
+      formatter = forAllSystems (
+        pkgs:
+        pkgs.writeShellApplication {
+          name = "nixfmt";
+          runtimeInputs = [ pkgs.nixfmt ];
+          text = ''
+            # `nix fmt` passes file paths; `nix fmt -- --check` passes only the
+            # flag.  Never fall through to nixfmt's stdin mode: default to the
+            # flake's own Nix files when no path argument is present.
+            flags=()
+            files=()
+            for arg in "$@"; do
+              case "$arg" in
+                -*) flags+=("$arg") ;;
+                *) files+=("$arg") ;;
+              esac
+            done
+            if [ "''${#files[@]}" -eq 0 ]; then
+              files=(flake.nix nix/package.nix)
+            fi
+            exec nixfmt ''${flags[@]+"''${flags[@]}"} "''${files[@]}"
+          '';
+        }
+      );
     };
 }
