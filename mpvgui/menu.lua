@@ -77,6 +77,14 @@ menu.PAGES = {
 	"loop",
 	"tools",
 	"shaders",
+	"settings",
+	"settings_video",
+	"settings_audio",
+	"settings_subs",
+	"settings_playback",
+	"settings_interface",
+	"settings_keys",
+	"settings_key",
 }
 
 local function value(v)
@@ -302,6 +310,11 @@ pages.root = function(state)
 				label = "Shaders",
 				detail = state.shader_active or "Off",
 				action = { kind = "panel", mode = "shaders" },
+			},
+			{
+				label = "Settings",
+				detail = "keybinds, tweaks, reset",
+				action = { kind = "page", page = "settings" },
 			},
 			{
 				label = state.fullscreen and "Leave fullscreen" or "Fullscreen",
@@ -624,6 +637,360 @@ pages.tools = function(state)
 			{ label = "Quit", detail = "", action = { kind = "cmd", args = { "quit" } } },
 		},
 	}
+end
+
+-- Settings pages ------------------------------------------------------------
+
+local function settings_value(state, prop)
+	return state.settings and state.settings[prop]
+end
+
+local function fmt_float(v, pattern)
+	local n = tonumber(v)
+	if n == nil then
+		return value(v)
+	end
+	return string.format(pattern or "%.2f", n)
+end
+
+local function fmt_secs(v)
+	return string.format("%+.2fs", tonumber(v) or 0)
+end
+
+local function short(v, n)
+	local s = tostring(v or "")
+	if #s <= n then
+		return s
+	end
+	return s:sub(1, n - 1) .. "…"
+end
+
+local function prop_row(state, prop, label, pattern)
+	return {
+		label = label,
+		detail = fmt_float(settings_value(state, prop), pattern),
+		action = { kind = "input", what = "set_property", prop = prop },
+	}
+end
+
+local function delay_row(state, prop, label)
+	return {
+		label = label,
+		detail = fmt_secs(settings_value(state, prop)),
+		action = { kind = "input", what = "set_property", prop = prop },
+	}
+end
+
+local function toggle_row(state, prop, label)
+	local on = settings_value(state, prop) == true
+	return {
+		label = label,
+		detail = on and "on" or "off",
+		active = on,
+		action = { kind = "set", prop = prop, value = not on, value_type = "native" },
+	}
+end
+
+local function cycle_row(state, prop, label, values)
+	local cur = tostring(settings_value(state, prop) or "")
+	return {
+		label = label,
+		detail = cur ~= "" and cur or "auto",
+		action = { kind = "cycle_values", prop = prop, values = values },
+	}
+end
+
+local function link_row(label, page, detail)
+	return { label = label, detail = detail or "", action = { kind = "page", page = page } }
+end
+
+pages.settings = function(state)
+	local keys = 0
+	for _, b in ipairs(state.input_bindings or {}) do
+		if b.section == "default" then
+			keys = keys + 1
+		end
+	end
+	return {
+		title = "SETTINGS",
+		rows = {
+			link_row("Video tweaks", "settings_video", "zoom, colors, aspect"),
+			link_row("Audio tweaks", "settings_audio", "delay, channels, mute"),
+			link_row("Subtitle tweaks", "settings_subs", "delay, scale, position"),
+			link_row("Playback tweaks", "settings_playback", "speed, loop, cache"),
+			link_row("Keybindings", "settings_keys", keys > 0 and (keys .. " keys") or ""),
+			link_row("Interface", "settings_interface", "autohide, scale"),
+			{
+				label = "Reset accidental changes",
+				detail = "zoom, pan, colors, delays",
+				action = { kind = "reset_tweaks" },
+			},
+			{
+				label = "Set any property…",
+				detail = "advanced",
+				action = { kind = "input", what = "set_property" },
+			},
+		},
+	}
+end
+
+pages.settings_video = function(state)
+	local aspect = aspect_label(settings_value(state, "video-aspect-override"))
+	return {
+		title = "VIDEO TWEAKS",
+		rows = {
+			link_row("Aspect ratio", "aspect", aspect),
+			prop_row(state, "video-zoom", "Zoom", "%.3f"),
+			prop_row(state, "video-pan-x", "Pan X", "%.3f"),
+			prop_row(state, "video-pan-y", "Pan Y", "%.3f"),
+			{
+				label = "Rotation",
+				detail = value(settings_value(state, "video-rotate")),
+				action = { kind = "input", what = "set_property", prop = "video-rotate" },
+			},
+			prop_row(state, "panscan", "Panscan", "%.2f"),
+			prop_row(state, "video-align-x", "Align X", "%.2f"),
+			prop_row(state, "video-align-y", "Align Y", "%.2f"),
+			cycle_row(state, "deinterlace", "Deinterlace", { "no", "auto", "yes" }),
+			prop_row(state, "brightness", "Brightness", "%.2f"),
+			prop_row(state, "contrast", "Contrast", "%.2f"),
+			prop_row(state, "saturation", "Saturation", "%.2f"),
+			prop_row(state, "gamma", "Gamma", "%.2f"),
+			prop_row(state, "hue", "Hue", "%.2f"),
+			toggle_row(state, "deband", "Deband"),
+			{
+				label = "Reset view",
+				detail = "zoom, pan, rotate",
+				action = { kind = "reset_view" },
+			},
+		},
+	}
+end
+
+pages.settings_audio = function(state)
+	return {
+		title = "AUDIO TWEAKS",
+		rows = {
+			{
+				label = "Volume",
+				detail = string.format("%d%%", tonumber(settings_value(state, "volume")) or 0),
+				action = { kind = "input", what = "set_property", prop = "volume" },
+			},
+			toggle_row(state, "mute", "Mute"),
+			delay_row(state, "audio-delay", "Audio delay"),
+			cycle_row(
+				state,
+				"audio-channels",
+				"Channels",
+				{ "auto", "mono", "stereo", "5.1", "7.1" }
+			),
+			toggle_row(state, "audio-normalize-downmix", "Normalize downmix"),
+			{
+				label = "Reset audio tweaks",
+				detail = "delay, mute, channels",
+				action = { kind = "reset_audio" },
+			},
+		},
+	}
+end
+
+pages.settings_subs = function(state)
+	return {
+		title = "SUBTITLE TWEAKS",
+		rows = {
+			toggle_row(state, "sub-visibility", "Visible"),
+			delay_row(state, "sub-delay", "Delay"),
+			prop_row(state, "sub-speed", "Speed", "%.2f"),
+			prop_row(state, "sub-scale", "Scale", "%.2f"),
+			prop_row(state, "sub-pos", "Position", "%.2f"),
+			cycle_row(
+				state,
+				"sub-ass-override",
+				"ASS override",
+				{ "no", "yes", "scale", "force", "strip" }
+			),
+			prop_row(state, "sub-font-size", "Font size", "%.2f"),
+			prop_row(state, "sub-border-size", "Border size", "%.2f"),
+			prop_row(state, "sub-shadow-offset", "Shadow offset", "%.2f"),
+			{
+				label = "Reset subtitle tweaks",
+				detail = "delay, scale, position",
+				action = { kind = "reset_subs" },
+			},
+		},
+	}
+end
+
+pages.settings_playback = function(state)
+	return {
+		title = "PLAYBACK TWEAKS",
+		rows = {
+			link_row("Speed", "speed", render.speed_label(state.speed)),
+			link_row("Loop", "loop", loop_label(state)),
+			{
+				label = "Pause",
+				detail = state.pause and "paused" or "playing",
+				action = {
+					kind = "set",
+					prop = "pause",
+					value = not state.pause,
+					value_type = "native",
+				},
+			},
+			cycle_row(state, "keep-open", "Keep open", { "no", "yes", "always" }),
+			cycle_row(state, "cache", "Cache", { "auto", "yes", "no" }),
+			toggle_row(state, "shuffle", "Shuffle"),
+			{
+				label = "Reset playback tweaks",
+				detail = "speed, loop, cache",
+				action = { kind = "reset_playback" },
+			},
+		},
+	}
+end
+
+pages.settings_interface = function(state)
+	local gui = state.gui or {}
+	return {
+		title = "INTERFACE",
+		rows = {
+			{
+				label = "Autohide delay",
+				detail = string.format("%.1fs", tonumber(gui.autohide_delay) or 0),
+				action = { kind = "input", what = "gui_set", key = "autohide_delay" },
+			},
+			{
+				label = "GUI scale",
+				detail = string.format("%.2fx", tonumber(gui.scale) or 1),
+				action = { kind = "input", what = "gui_set", key = "scale" },
+			},
+			{
+				label = "Reset interface",
+				detail = "2.5s, 1.00x",
+				action = { kind = "gui_reset" },
+			},
+		},
+	}
+end
+
+-- Keybinding pages ----------------------------------------------------------
+
+local function binding_list(state)
+	local map = {}
+	for _, b in ipairs(state.input_bindings or {}) do
+		if b.section == "default" then
+			local cur = map[b.key]
+			if not cur or (cur.is_weak and not b.is_weak) or (not cur.is_weak and not b.is_weak) then
+				map[b.key] = b
+			end
+		end
+	end
+	local list = {}
+	for _, b in pairs(map) do
+		list[#list + 1] = b
+	end
+	table.sort(list, function(a, b)
+		local ak = tostring(a.key):lower()
+		local bk = tostring(b.key):lower()
+		if ak == bk then
+			return tostring(a.cmd) < tostring(b.cmd)
+		end
+		return ak < bk
+	end)
+	return list
+end
+
+pages.settings_keys = function(state)
+	local filter = tostring(state.keybind_filter or "")
+	local needle = filter:lower()
+	local rows = {
+		{
+			label = "Filter",
+			detail = filter ~= "" and filter or "all",
+			action = { kind = "input", what = "keybind_filter" },
+		},
+		{
+			label = "Add binding…",
+			detail = "key + command",
+			action = { kind = "input", what = "keybind_add" },
+		},
+	}
+	local shown = 0
+	for _, b in ipairs(binding_list(state)) do
+		local hay =
+			(tostring(b.key) .. " " .. tostring(b.cmd) .. " " .. tostring(b.comment or "")):lower()
+		if needle == "" or hay:find(needle, 1, true) then
+			shown = shown + 1
+			local detail = b.cmd == "ignore" and "disabled" or tostring(b.cmd)
+			if state.custom_bindings and state.custom_bindings[b.key] ~= nil then
+				detail = detail .. " · custom"
+			end
+			rows[#rows + 1] = {
+				label = b.key,
+				detail = short(detail, 54),
+				action = { kind = "keybind_view", key = b.key },
+			}
+		end
+	end
+	if shown == 0 then
+		rows[#rows + 1] = { label = "No matching bindings", detail = filter, disabled = true }
+	end
+	rows[#rows + 1] = {
+		label = "GUI keys",
+		detail = "Tab · Shift+x · Shift+m · g · Esc",
+		disabled = true,
+	}
+	if state.custom_bindings and next(state.custom_bindings) ~= nil then
+		rows[#rows + 1] = {
+			label = "Clear custom bindings",
+			detail = "restart restores defaults",
+			action = { kind = "keybind_clear" },
+		}
+	end
+	return { title = "KEYBINDINGS", rows = rows }
+end
+
+pages.settings_key = function(state)
+	local key = state.keybind_selected
+	local binding
+	if key then
+		for _, b in ipairs(binding_list(state)) do
+			if b.key == key then
+				binding = b
+				break
+			end
+		end
+	end
+	local rows = {}
+	if not binding then
+		rows[#rows + 1] = { label = "No binding selected", detail = "", disabled = true }
+	else
+		rows[#rows + 1] = { label = "Key", detail = binding.key, disabled = true }
+		rows[#rows + 1] = { label = "Command", detail = short(binding.cmd, 80), disabled = true }
+		if binding.comment and binding.comment ~= "" then
+			rows[#rows + 1] = { label = "Comment", detail = short(binding.comment, 80), disabled = true }
+		end
+		if binding.cmd == "ignore" then
+			rows[#rows + 1] = {
+				label = "Already unbound",
+				detail = "use Add binding to restore",
+				disabled = true,
+			}
+		else
+			rows[#rows + 1] = {
+				label = "Rebind key…",
+				detail = "new key",
+				action = { kind = "input", what = "keybind_rebind" },
+			}
+			rows[#rows + 1] = {
+				label = "Unbind",
+				detail = "disable this key",
+				action = { kind = "keybind_unbind" },
+			}
+		end
+	end
+	rows[#rows + 1] = { label = "Back", detail = "", action = { kind = "back" } }
+	return { title = "KEYBINDING", rows = rows }
 end
 
 -- The playlist and shader pages are rendered by render.lua from their own

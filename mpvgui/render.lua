@@ -655,4 +655,65 @@ function render.transient(L, tooltip, toast)
 	return table.concat(ev, "\n")
 end
 
+-- Centered text prompt.  Drawn on its own top layer while state.text_input is
+-- set; the GUI owns the key bindings that edit it (mpv's mp.input is not
+-- available in every build, including the packaged one).
+function render.prompt(L, state)
+	local ti = state.text_input
+	if not ti then
+		return ""
+	end
+	local ev = {}
+	local size = L.font.title
+	local label_size = L.font.row
+	local hint_size = L.font.small
+	local pad = math.max(8, math.floor(22 * L.s))
+	local box_w =
+		math.min(L.w - 2 * L.margin, math.max(math.floor(420 * L.s), math.floor(L.w * 0.64)))
+	local box_h = math.max(math.floor(140 * L.s), size * 2 + label_size * 2 + pad * 2)
+	local cx, cy = L.w / 2, L.h / 2
+	local x0, y0 = math.floor(cx - box_w / 2), math.floor(cy - box_h / 2)
+	local x1, y1 = math.floor(cx + box_w / 2), math.floor(cy + box_h / 2)
+	add_round(ev, theme.color.panel, "08", x0, y0, x1, y1, math.floor(L.radius * 1.4))
+	local label = render.sanitize(ti.label or "")
+	ev[#ev + 1] = text_event(
+		cx,
+		y0 + pad + label_size * 0.6,
+		5,
+		label,
+		label_size,
+		theme.color.text_dim,
+		nil,
+		{ x0 + pad, y0, x1 - pad, y1 }
+	)
+	local text = tostring(ti.text or "")
+	local cursor = math.max(0, math.min(#text, tonumber(ti.cursor) or #text))
+	local shown = text:sub(1, cursor) .. "|" .. text:sub(cursor + 1)
+	local max_chars = math.max(1, math.floor((box_w - pad * 2) / (size * 0.55)))
+	if #shown > max_chars then
+		shown = shown:sub(-max_chars)
+	end
+	ev[#ev + 1] = text_event(
+		x0 + pad,
+		cy,
+		4,
+		render.sanitize(shown),
+		size,
+		theme.color.text,
+		nil,
+		{ x0 + pad, y0, x1 - pad, y1 }
+	)
+	ev[#ev + 1] = text_event(
+		cx,
+		y1 - pad - hint_size * 0.6,
+		2,
+		"Enter = OK   Esc = cancel",
+		hint_size,
+		theme.color.text_dim,
+		nil,
+		{ x0 + pad, y0, x1 - pad, y1 }
+	)
+	return table.concat(ev, "\n")
+end
+
 return render

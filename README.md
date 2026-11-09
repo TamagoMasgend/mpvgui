@@ -73,9 +73,9 @@ or close the panel at the root.
 
 | Page | Rows |
 |---|---|
-| Root | Playlist, Chapters, Audio track, Subtitles, Video track, Speed, Aspect ratio, Loop, Tools, Shaders, Fullscreen, Screenshot, Quit |
+| Root | Playlist, Chapters, Audio track, Subtitles, Video track, Speed, Aspect ratio, Loop, Tools, Shaders, Settings, Fullscreen, Screenshot, Quit |
 | Audio track / Video track | Automatic, Off, one row per track (title or language · codec · channels · flags), cycle |
-| Subtitles | Automatic, Off, tracks, visibility, cycle, "Add subtitle file…" (see [Known limits](#known-limits)) |
+| Subtitles | Automatic, Off, tracks, visibility, cycle, "Add subtitle file…" |
 | Chapters | one row per chapter with its start time; click seeks |
 | Speed | 0.25×…4×, −0.05/+0.05, reset |
 | Aspect ratio | Default, 16:9, 4:3, 1:1, 21:9, 2.35:1 |
@@ -84,6 +84,47 @@ or close the panel at the root.
 
 Track and chapter rows reflect the current file. Long pages scroll with the
 wheel over the panel.
+
+## Settings, keybindings and accidental changes
+
+**Settings** in the root menu opens the editing pages:
+
+| Page | Rows |
+|---|---|
+| Settings | Video/Audio/Subtitle/Playback tweaks, Keybindings, Interface, reset, advanced property |
+| Video tweaks | Aspect, zoom, pan, rotation, panscan, align, deinterlace, brightness, contrast, saturation, gamma, hue, deband, reset view |
+| Audio tweaks | Volume, mute, audio delay, channels, normalize downmix, reset |
+| Subtitle tweaks | Visibility, delay, speed, scale, position, ASS override, font/border/shadow sizes, reset |
+| Playback tweaks | Pause, keep-open, cache, shuffle, links to Speed/Loop, reset |
+| Interface | Autohide delay and GUI scale (written to `~~/script-opts/mpvgui.conf`) |
+| Keybindings | Filter, add, effective key list; click a key for command, rebind and unbind |
+| Set any property… | Type a property name, then a value; `+N`/`-N` adds instead of setting |
+
+Numeric and text rows open a single-line prompt: type to edit, Backspace/Delete,
+arrows/Home/End, `Enter` to apply and `Esc` to cancel. Mouse clicks are ignored
+while a prompt is open. The GUI draws this prompt itself because the packaged
+mpv does not expose `mp.input`.
+
+**Reset accidental changes** assigns mpv's own defaults to the properties a
+stray key usually changes: zoom, pan, rotation, aspect, align, panscan, speed,
+audio/subtitle delays, subtitle speed/scale/position/visibility, mute, colour
+controls, deinterlace, loop modes, A-B loop and subtitle styling. It does not
+reset volume or deliberately chosen playback settings such as cache/keep-open.
+
+Watched properties also show a toast when they change outside the GUI, e.g.
+`contrast = -1.00`, and the bar is shown if it had auto-hidden. GUI-initiated
+changes are suppressed so a menu row does not produce a duplicate toast.
+Changes from opening a file are suppressed for one second.
+
+## Keybindings
+
+`~~/mpvgui/input.conf` stores GUI-managed overrides, one `key command` per line;
+`key ignore` disables a key and `#` starts a comment. It is loaded on startup.
+Unbinding or rebinding updates that file and applies immediately; **Clear custom
+bindings** removes the overrides (defaults return after an mpv restart). The GUI
+keys (`Tab`, `Shift+m`, `Shift+x`, `Esc`, `g`, mouse bindings) are reserved and
+cannot be changed from the page. The key list shows mpv's effective bindings in
+the `default` section, so it is also a reference for what a stray key does.
 
 ## Shader presets
 
@@ -130,19 +171,30 @@ The script accepts these mpv commands:
 script-message mpvgui-shader <name|off>
 script-message mpvgui-import <path>
 script-message mpvgui-reset-stats
-script-message mpvgui-page <root|chapters|audio|subs|video|speed|aspect|loop|tools|off>
+script-message mpvgui-page <root|chapters|audio|subs|video|speed|aspect|loop|tools|settings|settings_video|settings_audio|settings_subs|settings_playback|settings_interface|settings_keys|off>
+script-message mpvgui-keybind <key> <command>
+script-message mpvgui-keyunbind <key>
+script-message mpvgui-reset-tweaks
 ```
 
-They can be sent through mpv input bindings or JSON IPC. For an external IPC
-client, enable a socket with mpv's `--input-ipc-server` option; the wrapper does
-not enable one by default.
+`mpvgui-keybind` and `mpvgui-keyunbind` persist to `~~/mpvgui/input.conf`;
+`mpvgui-reset-tweaks` is the same reset action as the Settings page. They can be
+sent through mpv input bindings or JSON IPC. For an external IPC client, enable
+a socket with mpv's `--input-ipc-server` option; the wrapper does not enable one
+by default.
+
+The script publishes these read-only properties for automation and tests:
+`user-data/mpvgui/toast` (current toast text, empty when none) and
+`user-data/mpvgui/input` (JSON `{label,text,cursor}` while a prompt is open,
+empty otherwise). The existing `user-data/mpvgui/menu`, `.../shaders`,
+`.../layout` and update counters are unchanged.
 
 ## How it works
 
-Four ASS overlay layers hold the bar background and tracks (`static`), panel
-rows (`panel`), icons, labels and fills (`hover`), and tooltips and toasts
-(`transient`). A layer is submitted to mpv only when its generated ASS content
-changes.
+Five ASS overlay layers hold the bar background and tracks (`static`), panel
+rows (`panel`), icons, labels and fills (`hover`), tooltips and toasts
+(`transient`), and the single-line text prompt (`prompt`, topmost). A layer is
+submitted to mpv only when its generated ASS content changes.
 
 The script handles properties and input events through mpv's Lua API. One
 periodic timer refreshes progress at 4 Hz while the bar is visible during
@@ -171,11 +223,10 @@ invocation options.
 
 ## Known limits
 
-- The panel's **Import…** and **Add subtitle file…** actions do not open input
-  prompts in the packaged build; they show "no input API". Shader import is
-  available through [Automation](#automation).
 - Input checks use synthetic IPC events; physical clicks and held drags have
-  not been verified.
+  not been verified. The text prompt was exercised with synthetic key presses;
+  physical keyboards are expected to behave the same because the prompt uses
+  forced bindings.
 - Resize checks on niri were skipped; compositor-driven resize remains
   unverified.
 - `.vpy` files appear in shader discovery but are passed to `glsl-shaders`,
